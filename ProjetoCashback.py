@@ -96,7 +96,7 @@ if arquivo_vendas and arquivo_cadastro:
 
                 # Cruzamento
                 df_detalhado = pd.merge(df_vendas, df_cadastro, on='chave_match', how='inner')
-                df_detalhado['Cashback'] = df_detalhado['Valor_Limpo'] * 0.05
+                df_detalhado['Cashback'] = df_detalhado['Valor_Limpo'] * 0.10
                 
                 # Agrupamento
                 df_final = df_detalhado.groupby([col_nome, 'Telefone_Limpo'], as_index=False)[['Valor_Limpo', 'Cashback']].sum()
@@ -216,3 +216,4 @@ if arquivo_vendas and arquivo_cadastro:
                 del st.session_state.df_tabela
 else:
     st.info("Aguardando upload dos arquivos CSV...")
+
