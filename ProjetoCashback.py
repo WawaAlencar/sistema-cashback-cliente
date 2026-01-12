@@ -8,7 +8,7 @@ import time
 # --- 1. CONFIGURAÇÃO INICIAL ---
 st.set_page_config(page_title="Sistema de Cashback", page_icon="🔐", layout="wide")
 
-# Estilos CSS (Tema Claro e Ajustes)
+# Estilos CSS (Tema Claro e Ajustes Finais)
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #000000; }
@@ -27,6 +27,10 @@ st.markdown("""
         margin-bottom: 10px;
         border: 1px solid #C3E6CB;
     }
+    /* Ajuste para botões ficarem mais bonitos */
+    div.stButton > button {
+        border-radius: 5px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -41,13 +45,13 @@ if not st.session_state.logado:
         st.markdown("Este sistema é privado. Digite a senha para continuar.")
         senha = st.text_input("Senha de Acesso", type="password")
         
-        if st.button("Entrar"):
+        if st.button("Entrar", use_container_width=True):
             if senha == "@Joaozinho20":
                 st.session_state.logado = True
-                st.rerun() # Recarrega a página para entrar
+                st.rerun()
             else:
                 st.error("Senha incorreta.")
-    st.stop() # Para a execução do código aqui se não estiver logado
+    st.stop()
 
 # =========================================================
 # DAQUI PARA BAIXO, SÓ CARREGA SE A SENHA ESTIVER CERTA
@@ -105,9 +109,8 @@ with st.sidebar:
     arquivo_cadastro = st.file_uploader("Relatório de Cadastro", type=["csv", "txt"])
     
     st.divider()
-    st.header("⚙️ Configuração da Campanha")
+    st.header("⚙️ Configuração")
     PRECO_LAVAGEM = st.number_input("Preço da Lavagem (R$)", value=17.90, step=0.50)
-    # Regra: 10% de cashback = 1 lavagem grátis a cada 10
     PORCENTAGEM = 0.10 
 
 # --- LÓGICA PRINCIPAL ---
@@ -123,7 +126,7 @@ if arquivo_vendas and arquivo_cadastro:
             col_valor = next((c for c in df_vendas.columns if 'Total Venda' in c or 'Venda R$' in c), None)
 
             if col_usuario and col_nome and col_valor:
-                # Tratamento
+                # Tratamento e Cálculo
                 df_vendas['chave_match'] = df_vendas[col_usuario].apply(limpar_texto)
                 df_vendas['Valor_Limpo'] = df_vendas[col_valor].apply(limpar_dinheiro)
                 df_cadastro['chave_match'] = df_cadastro[col_nome].apply(limpar_texto)
@@ -133,32 +136,23 @@ if arquivo_vendas and arquivo_cadastro:
                 else:
                     df_cadastro['Telefone_Limpo'] = ""
 
-                # Cruzamento
                 df_detalhado = pd.merge(df_vendas, df_cadastro, on='chave_match', how='inner')
-                
-                # CÁLCULO: 10% de Cashback
                 df_detalhado['Cashback'] = df_detalhado['Valor_Limpo'] * PORCENTAGEM
                 
-                # Agrupamento
                 df_final = df_detalhado.groupby([col_nome, 'Telefone_Limpo'], as_index=False)[['Valor_Limpo', 'Cashback']].sum()
-                
-                # Ordenação
                 df_final = df_final.sort_values(by='Cashback', ascending=False)
                 df_final = df_final[df_final['Cashback'] > 0]
-
-                # --- 🧠 LÓGICA DO "FALTA QUANTO PARA GANHAR" ---
-                # Cria uma coluna visual para mostrar "0.5 lavagens" ou "1.2 lavagens"
                 df_final['Saldo_em_Lavagens'] = df_final['Cashback'] / PRECO_LAVAGEM
 
-                # --- VISUALIZAÇÃO ---
+                # --- MENSAGEM VISUAL ---
                 st.markdown(f"""
                 <div class="success-box">
-                    <b>🎯 Regra Ativa:</b> A cada <b>10 lavagens</b> (aprox. R$ {PRECO_LAVAGEM*10:.2f} gastos), 
-                    o cliente acumula <b>R$ {PRECO_LAVAGEM:.2f}</b> (1 Lavagem Grátis).
+                    <b>🎯 Regra Ativa:</b> A cada <b>10 lavagens</b> (aprox. R$ {PRECO_LAVAGEM*10:.2f}), 
+                    o cliente ganha <b>1 Lavagem Grátis</b> (R$ {PRECO_LAVAGEM:.2f}).
                 </div>
                 """, unsafe_allow_html=True)
 
-                # TOP 3
+                # --- TOP 3 ---
                 top_3 = df_final.head(3).reset_index(drop=True)
                 if not top_3.empty:
                     st.subheader("🏆 Clientes Mais Próximos do Prêmio")
@@ -166,39 +160,41 @@ if arquivo_vendas and arquivo_cadastro:
                     medals = ["🥇", "🥈", "🥉"]
                     for i, col in enumerate([c1, c2, c3]):
                         if i < len(top_3):
-                            nome = top_3.loc[i, col_nome]
-                            cash = top_3.loc[i, 'Cashback']
-                            # Calcula quanto % de uma lavagem ele tem
-                            progresso = (cash / PRECO_LAVAGEM) * 100
+                            progresso = (top_3.loc[i, 'Cashback'] / PRECO_LAVAGEM) * 100
                             col.metric(
-                                f"{medals[i]} {nome}",
-                                f"Saldo: R$ {cash:.2f}",
-                                f"{progresso:.0f}% de uma lavagem"
+                                f"{medals[i]} {top_3.loc[i, col_nome]}",
+                                f"Saldo: R$ {top_3.loc[i, 'Cashback']:.2f}",
+                                f"{progresso:.0f}% da meta"
                             )
                 
                 st.divider()
 
-                # --- TABELA INTERATIVA ---
+                # --- INICIALIZAÇÃO DA TABELA ---
                 if "df_tabela" not in st.session_state:
                     df_final.insert(0, "Enviar?", True)
                     st.session_state.df_tabela = df_final
                 
-                # Atualização dinâmica da tabela se mudar arquivo
                 if len(df_final) != len(st.session_state.df_tabela):
                      df_final.insert(0, "Enviar?", True)
                      st.session_state.df_tabela = df_final
 
-                # Botões de Seleção
-                col_sel, col_desel, _ = st.columns([1, 1, 4])
-                if col_sel.button("✅ Marcar Todos"):
-                    st.session_state.df_tabela["Enviar?"] = True
-                    st.rerun()
-                if col_desel.button("⬜ Desmarcar Todos"):
-                    st.session_state.df_tabela["Enviar?"] = False
-                    st.rerun()
+                # --- BOTÕES DE SELEÇÃO (LADO A LADO) ---
+                # Usamos colunas pequenas [1,1,6] para que fiquem colados na esquerda
+                col_sel, col_desel, _ = st.columns([1, 1, 6])
+                
+                with col_sel:
+                    if st.button("✅ Marcar Todos", use_container_width=True):
+                        st.session_state.df_tabela["Enviar?"] = True
+                        st.rerun()
+                
+                with col_desel:
+                    if st.button("⬜ Desmarcar Todos", use_container_width=True):
+                        st.session_state.df_tabela["Enviar?"] = False
+                        st.rerun()
 
                 st.write("### 👇 Controle de Clientes")
 
+                # --- TABELA ---
                 df_editado = st.data_editor(
                     st.session_state.df_tabela,
                     column_config={
@@ -207,10 +203,10 @@ if arquivo_vendas and arquivo_cadastro:
                         "Telefone_Limpo": st.column_config.TextColumn("Telefone", width="medium"),
                         "Valor_Limpo": st.column_config.NumberColumn("Gasto Total", format="R$ %.2f"),
                         "Cashback": st.column_config.ProgressColumn(
-                            f"Meta: R$ {PRECO_LAVAGEM:.2f} (1 Lavagem)",
+                            f"Meta: R$ {PRECO_LAVAGEM:.2f}",
                             format="R$ %.2f",
                             min_value=0,
-                            max_value=PRECO_LAVAGEM, # A barra enche quando chega no preço da lavagem
+                            max_value=PRECO_LAVAGEM,
                         ),
                         "Saldo_em_Lavagens": st.column_config.NumberColumn("Qtd. Prêmios", format="%.1f 🧺"),
                     },
@@ -223,26 +219,31 @@ if arquivo_vendas and arquivo_cadastro:
                 st.session_state.df_tabela = df_editado
                 clientes_selecionados = df_editado[df_editado["Enviar?"] == True]
 
-                # --- DISPARO ---
+                # --- DISPARO DE MENSAGENS (ALINHADO) ---
                 st.divider()
                 st.subheader("🚀 Disparo de Mensagens")
                 
-                col_pin, col_btn = st.columns([1, 2])
-                pin_digitado = col_pin.text_input("PIN de Envio (Funcionário):", type="password", placeholder="****")
-                botao_disparo = col_btn.button("GERAR LINKS DE ENVIO", type="primary", use_container_width=True)
+                # vertical_alignment="bottom" alinha o botão com a caixa de texto, não com o label
+                col_pin, col_btn = st.columns([1, 3], vertical_alignment="bottom")
+                
+                with col_pin:
+                    pin_digitado = st.text_input("PIN de Envio:", type="password", placeholder="****")
+                
+                with col_btn:
+                    botao_disparo = st.button("GERAR LINKS DE ENVIO", type="primary", use_container_width=True)
 
                 if botao_disparo:
-                    if pin_digitado == "3040": # PIN do Funcionário para disparar
-                        st.success(f"PIN Correto! Listando {len(clientes_selecionados)} clientes...")
+                    if pin_digitado == "3040":
+                        st.success(f"PIN Correto! Listando {len(clientes_selecionados)} envios...")
                         st.markdown("---")
                         
-                        # Mensagem focada na lavagem grátis
                         msg_base = "Olá {nome}! Você já acumulou R$ {cash} de saldo fidelidade. Isso corresponde a {porc}% de uma lavagem gratuita! Venha completar."
-                        
-                        # Se o cliente já tiver saldo suficiente para 1 inteira, muda a mensagem
                         msg_premio = "Parabéns {nome}! Você completou o desafio! Você tem R$ {cash} de saldo e já pode resgatar sua LAVAGEM GRÁTIS!"
 
-                        for _, row in clientes_selecionados.iterrows():
+                        # Grid Responsivo para os Botões
+                        cols = st.columns(3) # Exibe em 3 colunas para economizar espaço
+                        
+                        for index, row in clientes_selecionados.iterrows():
                             nome = str(row[col_nome]).strip()
                             fone = row['Telefone_Limpo']
                             cash_val = row['Cashback']
@@ -250,22 +251,23 @@ if arquivo_vendas and arquivo_cadastro:
                             val_cash_str = f"{cash_val:.2f}".replace('.', ',')
                             porcentagem = int((cash_val / PRECO_LAVAGEM) * 100)
                             
-                            # Escolhe a mensagem certa (Incentivo vs Prêmio)
                             if cash_val >= PRECO_LAVAGEM:
                                 texto_final = msg_premio.replace("{nome}", nome).replace("{cash}", val_cash_str)
-                                label_botao = f"🎁 {nome} (RESGATAR PRÊMIO!)"
+                                label_botao = f"🎁 {nome} (RESGATAR!)"
                             else:
                                 texto_final = msg_base.replace("{nome}", nome).replace("{cash}", val_cash_str).replace("{porc}", str(porcentagem))
                                 label_botao = f"📲 {nome} (Falta {100-porcentagem}%)"
 
-                            if not fone or len(fone) < 8:
-                                st.warning(f"🚫 {nome}: Sem telefone")
-                            else:
-                                link = f"https://wa.me/{fone}?text={quote(texto_final)}"
-                                st.link_button(label_botao, link)
+                            # Alterna entre as 3 colunas para exibir os botões
+                            with cols[index % 3]:
+                                if not fone or len(fone) < 8:
+                                    st.warning(f"🚫 {nome} (S/ Tel)")
+                                else:
+                                    link = f"https://wa.me/{fone}?text={quote(texto_final)}"
+                                    st.link_button(label_botao, link, use_container_width=True)
                             
                     else:
-                        st.error("🚫 PIN de Envio Incorreto (3040).")
+                        st.error("🚫 PIN Incorreto.")
 
             else:
                 st.error("Colunas essenciais não encontradas.")
