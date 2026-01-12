@@ -3,25 +3,57 @@ import pandas as pd
 import unicodedata
 from urllib.parse import quote
 import io
+import time
 
-# --- CONFIGURAÇÃO VISUAL ---
-st.set_page_config(page_title="Sistema de Cashback", page_icon="💰", layout="wide")
+# --- 1. CONFIGURAÇÃO INICIAL ---
+st.set_page_config(page_title="Sistema de Cashback", page_icon="🔐", layout="wide")
 
-# Estilos CSS para deixar mais clean
+# Estilos CSS (Tema Claro e Ajustes)
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #000000; }
     div[data-testid="stMetric"] {
         background-color: #F8F9FA;
         border-radius: 10px;
-        padding: 15px;
+        padding: 10px;
         border: 1px solid #DEE2E6;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
+        box-shadow: 1px 1px 3px rgba(0,0,0,0.05);
+    }
+    .success-box {
+        padding: 15px;
+        background-color: #D4EDDA;
+        color: #155724;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        border: 1px solid #C3E6CB;
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("💰 Sistema de Gestão de Cashback")
+# --- 2. TELA DE LOGIN (BLOQUEIO) ---
+if 'logado' not in st.session_state:
+    st.session_state.logado = False
+
+if not st.session_state.logado:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.title("🔒 Acesso Restrito")
+        st.markdown("Este sistema é privado. Digite a senha para continuar.")
+        senha = st.text_input("Senha de Acesso", type="password")
+        
+        if st.button("Entrar"):
+            if senha == "@Joaozinho20":
+                st.session_state.logado = True
+                st.rerun() # Recarrega a página para entrar
+            else:
+                st.error("Senha incorreta.")
+    st.stop() # Para a execução do código aqui se não estiver logado
+
+# =========================================================
+# DAQUI PARA BAIXO, SÓ CARREGA SE A SENHA ESTIVER CERTA
+# =========================================================
+
+st.title("💰 Gestão de Fidelidade (10 por 1)")
 
 # --- FUNÇÕES ---
 def limpar_texto(texto):
@@ -66,10 +98,17 @@ def carregar_csv_com_busca(uploaded_file, palavras_chave):
     except:
         return None
 
-# --- SIDEBAR ---
-st.sidebar.header("📂 Arquivos")
-arquivo_vendas = st.sidebar.file_uploader("Relatório de Vendas", type=["csv", "txt"])
-arquivo_cadastro = st.sidebar.file_uploader("Relatório de Cadastro", type=["csv", "txt"])
+# --- SIDEBAR E PARÂMETROS ---
+with st.sidebar:
+    st.header("📂 Arquivos do Sistema")
+    arquivo_vendas = st.file_uploader("Relatório de Vendas", type=["csv", "txt"])
+    arquivo_cadastro = st.file_uploader("Relatório de Cadastro", type=["csv", "txt"])
+    
+    st.divider()
+    st.header("⚙️ Configuração da Campanha")
+    PRECO_LAVAGEM = st.number_input("Preço da Lavagem (R$)", value=17.90, step=0.50)
+    # Regra: 10% de cashback = 1 lavagem grátis a cada 10
+    PORCENTAGEM = 0.10 
 
 # --- LÓGICA PRINCIPAL ---
 if arquivo_vendas and arquivo_cadastro:
@@ -96,80 +135,92 @@ if arquivo_vendas and arquivo_cadastro:
 
                 # Cruzamento
                 df_detalhado = pd.merge(df_vendas, df_cadastro, on='chave_match', how='inner')
-                df_detalhado['Cashback'] = df_detalhado['Valor_Limpo'] * 0.10
+                
+                # CÁLCULO: 10% de Cashback
+                df_detalhado['Cashback'] = df_detalhado['Valor_Limpo'] * PORCENTAGEM
                 
                 # Agrupamento
                 df_final = df_detalhado.groupby([col_nome, 'Telefone_Limpo'], as_index=False)[['Valor_Limpo', 'Cashback']].sum()
                 
-                # ORDENAÇÃO (Rankeado do maior cashback para o menor)
+                # Ordenação
                 df_final = df_final.sort_values(by='Cashback', ascending=False)
                 df_final = df_final[df_final['Cashback'] > 0]
 
-                # --- TOP 3 ---
-                st.subheader("🏆 Melhores Clientes do Período")
+                # --- 🧠 LÓGICA DO "FALTA QUANTO PARA GANHAR" ---
+                # Cria uma coluna visual para mostrar "0.5 lavagens" ou "1.2 lavagens"
+                df_final['Saldo_em_Lavagens'] = df_final['Cashback'] / PRECO_LAVAGEM
+
+                # --- VISUALIZAÇÃO ---
+                st.markdown(f"""
+                <div class="success-box">
+                    <b>🎯 Regra Ativa:</b> A cada <b>10 lavagens</b> (aprox. R$ {PRECO_LAVAGEM*10:.2f} gastos), 
+                    o cliente acumula <b>R$ {PRECO_LAVAGEM:.2f}</b> (1 Lavagem Grátis).
+                </div>
+                """, unsafe_allow_html=True)
+
+                # TOP 3
                 top_3 = df_final.head(3).reset_index(drop=True)
                 if not top_3.empty:
+                    st.subheader("🏆 Clientes Mais Próximos do Prêmio")
                     c1, c2, c3 = st.columns(3)
                     medals = ["🥇", "🥈", "🥉"]
                     for i, col in enumerate([c1, c2, c3]):
                         if i < len(top_3):
+                            nome = top_3.loc[i, col_nome]
+                            cash = top_3.loc[i, 'Cashback']
+                            # Calcula quanto % de uma lavagem ele tem
+                            progresso = (cash / PRECO_LAVAGEM) * 100
                             col.metric(
-                                f"{medals[i]} {top_3.loc[i, col_nome]}",
-                                f"R$ {top_3.loc[i, 'Valor_Limpo']:.2f}",
-                                f"Cashback: R$ {top_3.loc[i, 'Cashback']:.2f}"
+                                f"{medals[i]} {nome}",
+                                f"Saldo: R$ {cash:.2f}",
+                                f"{progresso:.0f}% de uma lavagem"
                             )
                 
                 st.divider()
 
-                # --- LÓGICA DE SELEÇÃO EM MASSA ---
-                # Inicializa o estado da tabela se não existir
+                # --- TABELA INTERATIVA ---
                 if "df_tabela" not in st.session_state:
                     df_final.insert(0, "Enviar?", True)
                     st.session_state.df_tabela = df_final
-                else:
-                    # Atualiza os valores mantendo a estrutura, caso mude o arquivo
-                    if len(df_final) != len(st.session_state.df_tabela):
-                        df_final.insert(0, "Enviar?", True)
-                        st.session_state.df_tabela = df_final
-
-                # Botões de Ação em Massa
-                col_sel, col_desel, col_vazio = st.columns([1, 1, 4])
                 
+                # Atualização dinâmica da tabela se mudar arquivo
+                if len(df_final) != len(st.session_state.df_tabela):
+                     df_final.insert(0, "Enviar?", True)
+                     st.session_state.df_tabela = df_final
+
+                # Botões de Seleção
+                col_sel, col_desel, _ = st.columns([1, 1, 4])
                 if col_sel.button("✅ Marcar Todos"):
                     st.session_state.df_tabela["Enviar?"] = True
                     st.rerun()
-                
                 if col_desel.button("⬜ Desmarcar Todos"):
                     st.session_state.df_tabela["Enviar?"] = False
                     st.rerun()
 
-                st.write("### 👇 Selecione os clientes para envio:")
+                st.write("### 👇 Controle de Clientes")
 
-                # TABELA VISUAL (DATA EDITOR)
                 df_editado = st.data_editor(
                     st.session_state.df_tabela,
                     column_config={
-                        "Enviar?": st.column_config.CheckboxColumn("Enviar?", width="small"),
+                        "Enviar?": st.column_config.CheckboxColumn("Sel.", width="small"),
                         "Nome": st.column_config.TextColumn("Cliente", width="medium"),
                         "Telefone_Limpo": st.column_config.TextColumn("Telefone", width="medium"),
-                        "Valor_Limpo": st.column_config.NumberColumn("Total Gasto", format="R$ %.2f"),
+                        "Valor_Limpo": st.column_config.NumberColumn("Gasto Total", format="R$ %.2f"),
                         "Cashback": st.column_config.ProgressColumn(
-                            "Ranking de Cashback",
+                            f"Meta: R$ {PRECO_LAVAGEM:.2f} (1 Lavagem)",
                             format="R$ %.2f",
                             min_value=0,
-                            max_value=float(df_final['Cashback'].max()),
+                            max_value=PRECO_LAVAGEM, # A barra enche quando chega no preço da lavagem
                         ),
+                        "Saldo_em_Lavagens": st.column_config.NumberColumn("Qtd. Prêmios", format="%.1f 🧺"),
                     },
-                    disabled=["Nome", "Telefone_Limpo", "Valor_Limpo", "Cashback"],
+                    disabled=["Nome", "Telefone_Limpo", "Valor_Limpo", "Cashback", "Saldo_em_Lavagens"],
                     hide_index=True,
                     use_container_width=True,
-                    key="editor_dados" # Importante para sincronizar
+                    key="editor_dados"
                 )
                 
-                # Sincroniza a edição manual com o estado
                 st.session_state.df_tabela = df_editado
-                
-                # Filtra os selecionados
                 clientes_selecionados = df_editado[df_editado["Enviar?"] == True]
 
                 # --- DISPARO ---
@@ -177,43 +228,48 @@ if arquivo_vendas and arquivo_cadastro:
                 st.subheader("🚀 Disparo de Mensagens")
                 
                 col_pin, col_btn = st.columns([1, 2])
-                pin_digitado = col_pin.text_input("Digite o PIN (3040):", type="password", placeholder="****")
+                pin_digitado = col_pin.text_input("PIN de Envio (Funcionário):", type="password", placeholder="****")
                 botao_disparo = col_btn.button("GERAR LINKS DE ENVIO", type="primary", use_container_width=True)
 
                 if botao_disparo:
-                    if pin_digitado == "3040":
-                        st.success(f"Acesso Permitido! Preparando {len(clientes_selecionados)} envios...")
+                    if pin_digitado == "3040": # PIN do Funcionário para disparar
+                        st.success(f"PIN Correto! Listando {len(clientes_selecionados)} clientes...")
                         st.markdown("---")
                         
-                        msg_base = "Olá {nome}, identificamos que você comprou R$ {gasto} conosco recentemente. Por isso, você ganhou R$ {cash} de cashback!"
+                        # Mensagem focada na lavagem grátis
+                        msg_base = "Olá {nome}! Você já acumulou R$ {cash} de saldo fidelidade. Isso corresponde a {porc}% de uma lavagem gratuita! Venha completar."
                         
-                        # Grid de cartões para os links
+                        # Se o cliente já tiver saldo suficiente para 1 inteira, muda a mensagem
+                        msg_premio = "Parabéns {nome}! Você completou o desafio! Você tem R$ {cash} de saldo e já pode resgatar sua LAVAGEM GRÁTIS!"
+
                         for _, row in clientes_selecionados.iterrows():
                             nome = str(row[col_nome]).strip()
                             fone = row['Telefone_Limpo']
-                            val_cash = f"{row['Cashback']:.2f}".replace('.', ',')
-                            val_gasto = f"{row['Valor_Limpo']:.2f}".replace('.', ',')
+                            cash_val = row['Cashback']
                             
-                            # PROTEÇÃO CONTRA FALTA DE TELEFONE
-                            if not fone or len(fone) < 8:
-                                st.warning(f"🚫 {nome}: Telefone não cadastrado ou inválido (Cashback: R$ {val_cash})")
+                            val_cash_str = f"{cash_val:.2f}".replace('.', ',')
+                            porcentagem = int((cash_val / PRECO_LAVAGEM) * 100)
+                            
+                            # Escolhe a mensagem certa (Incentivo vs Prêmio)
+                            if cash_val >= PRECO_LAVAGEM:
+                                texto_final = msg_premio.replace("{nome}", nome).replace("{cash}", val_cash_str)
+                                label_botao = f"🎁 {nome} (RESGATAR PRÊMIO!)"
                             else:
-                                msg = msg_base.replace("{nome}", nome).replace("{gasto}", val_gasto).replace("{cash}", val_cash)
-                                link = f"https://wa.me/{fone}?text={quote(msg)}"
-                                
-                                # Botão Bonito
-                                st.link_button(f"📲 Enviar para {nome} (R$ {val_cash})", link)
+                                texto_final = msg_base.replace("{nome}", nome).replace("{cash}", val_cash_str).replace("{porc}", str(porcentagem))
+                                label_botao = f"📲 {nome} (Falta {100-porcentagem}%)"
+
+                            if not fone or len(fone) < 8:
+                                st.warning(f"🚫 {nome}: Sem telefone")
+                            else:
+                                link = f"https://wa.me/{fone}?text={quote(texto_final)}"
+                                st.link_button(label_botao, link)
                             
                     else:
-                        st.error("🚫 PIN Incorreto.")
+                        st.error("🚫 PIN de Envio Incorreto (3040).")
 
             else:
                 st.error("Colunas essenciais não encontradas.")
         except Exception as e:
-            st.error(f"Erro no processamento: {e}")
-            # Reseta estado em caso de erro grave
-            if "df_tabela" in st.session_state:
-                del st.session_state.df_tabela
+            st.error(f"Erro: {e}")
 else:
-    st.info("Aguardando upload dos arquivos CSV...")
-
+    st.info("Faça o login e suba os arquivos para começar.")
