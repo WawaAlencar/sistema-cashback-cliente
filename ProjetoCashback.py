@@ -3,7 +3,8 @@ import pandas as pd
 import unicodedata
 from urllib.parse import quote
 import io
-import time
+import datetime
+import calendar
 
 # --- 1. CONFIGURAÇÃO INICIAL ---
 st.set_page_config(page_title="Sistema de Cashback", page_icon="🔐", layout="wide")
@@ -26,6 +27,14 @@ st.markdown("""
         border-radius: 5px;
         margin-bottom: 10px;
         border: 1px solid #C3E6CB;
+    }
+    .warning-box {
+        padding: 15px;
+        background-color: #FFF3CD;
+        color: #856404;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        border: 1px solid #FFEEBA;
     }
     div.stButton > button { border-radius: 5px; }
     </style>
@@ -53,9 +62,17 @@ if not st.session_state.logado:
 # SISTEMA PRINCIPAL
 # =========================================================
 
-st.title("💰 Gestão de Fidelidade (Histórico Acumulado)")
+st.title("💰 Gestão de Fidelidade (5% - Validade Mensal)")
 
 # --- FUNÇÕES ---
+def get_validade_texto():
+    # Pega a data de hoje e descobre o último dia do mês
+    agora = datetime.datetime.now()
+    ultimo_dia = calendar.monthrange(agora.year, agora.month)[1]
+    meses = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho',
+             7:'Julho', 8:'Agosto', 9:'Setembro', 10:'Outubro', 11:'Novembro', 12:'Dezembro'}
+    return f"{ultimo_dia} de {meses[agora.month]}"
+
 def limpar_texto(texto):
     if not isinstance(texto, str):
         return str(texto)
@@ -98,48 +115,33 @@ def carregar_csv_com_busca(uploaded_file, palavras_chave):
     except:
         return None
 
-# --- SIDEBAR COM UPLOAD MÚLTIPLO ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("📂 Arquivos do Sistema")
-    
-    # MUDANÇA AQUI: accept_multiple_files=True
-    arquivos_vendas = st.file_uploader(
-        "Relatórios de Vendas (Pode selecionar vários meses)", 
-        type=["csv", "txt"], 
-        accept_multiple_files=True
-    )
-    
-    # Cadastro continua sendo apenas 1 arquivo (o mais atual)
-    arquivo_cadastro = st.file_uploader("Relatório de Cadastro (Mais recente)", type=["csv", "txt"])
+    st.header("📂 Arquivos")
+    arquivos_vendas = st.file_uploader("Relatórios de Vendas (Múltiplos)", type=["csv", "txt"], accept_multiple_files=True)
+    arquivo_cadastro = st.file_uploader("Cadastro (Único)", type=["csv", "txt"])
     
     st.divider()
-    st.header("⚙️ Configuração")
-    PRECO_LAVAGEM = st.number_input("Preço da Lavagem (R$)", value=17.90, step=0.50)
-    PORCENTAGEM = 0.10 
+    st.header("⚙️ Financeiro")
+    PRECO_LAVAGEM = st.number_input("Preço Venda Lavagem (R$)", value=17.90, step=0.50)
+    CUSTO_LAVAGEM = st.number_input("Custo para Dona (R$)", value=5.88, step=0.10)
+    PORCENTAGEM = 0.05  # Agora é 5%
 
 # --- LÓGICA DE CONSOLIDAÇÃO ---
 if arquivos_vendas and arquivo_cadastro:
     
-    # 1. Processar Múltiplos Arquivos de Vendas
     lista_dfs_vendas = []
-    
     for arquivo in arquivos_vendas:
         df_temp = carregar_csv_com_busca(arquivo, ["Pagamento", "Total Venda", "Matricula"])
         if df_temp is not None:
             lista_dfs_vendas.append(df_temp)
             
-    # 2. Processar Cadastro
     df_cadastro = carregar_csv_com_busca(arquivo_cadastro, ["CPF", "Data de Nascimento"])
 
     if lista_dfs_vendas and df_cadastro is not None:
         try:
-            # Junta todos os meses em um único tabelão
-            df_vendas_consolidado = pd.concat(lista_dfs_vendas, ignore_index=True)
-            
-            # Remove duplicatas exatas (caso ela suba Janeiro e depois Janeiro+Fevereiro)
-            df_vendas_consolidado = df_vendas_consolidado.drop_duplicates()
+            df_vendas_consolidado = pd.concat(lista_dfs_vendas, ignore_index=True).drop_duplicates()
 
-            # Identificação de Colunas (Usando o consolidado)
             col_usuario = next((c for c in df_vendas_consolidado.columns if 'Usuário' in c or 'Usuario' in c), None)
             col_nome = next((c for c in df_cadastro.columns if 'Nome' in c), None)
             col_valor = next((c for c in df_vendas_consolidado.columns if 'Total Venda' in c or 'Venda R$' in c), None)
@@ -159,34 +161,41 @@ if arquivos_vendas and arquivo_cadastro:
                 df_detalhado = pd.merge(df_vendas_consolidado, df_cadastro, on='chave_match', how='inner')
                 df_detalhado['Cashback'] = df_detalhado['Valor_Limpo'] * PORCENTAGEM
                 
-                # Agrupamento Total
+                # Agrupamento
                 df_final = df_detalhado.groupby([col_nome, 'Telefone_Limpo'], as_index=False)[['Valor_Limpo', 'Cashback']].sum()
                 df_final = df_final.sort_values(by='Cashback', ascending=False)
                 df_final = df_final[df_final['Cashback'] > 0]
+                
+                # Barra de Progresso (Meta: 1 Lavagem Grátis = R$ 17,90)
+                # Com 5%, o cliente precisa gastar R$ 358,00 (20 lavagens) para ganhar 1.
                 df_final['Saldo_em_Lavagens'] = df_final['Cashback'] / PRECO_LAVAGEM
 
-                # --- MENSAGEM VISUAL ---
+                # --- CÁLCULO DE LUCRO DO NEGÓCIO ---
+                # Quantidade estimada de lavagens vendidas para esses clientes
+                qtd_lavagens_total = df_final['Valor_Limpo'].sum() / PRECO_LAVAGEM
+                custo_total = qtd_lavagens_total * CUSTO_LAVAGEM
+                cashback_total = df_final['Cashback'].sum()
+                faturamento_total = df_final['Valor_Limpo'].sum()
+                lucro_liquido = faturamento_total - custo_total - cashback_total
+
+                # --- VISUALIZAÇÃO ---
+                validade_str = get_validade_texto()
+                
                 st.markdown(f"""
-                <div class="success-box">
-                    <b>📅 Histórico Carregado:</b> Foram processadas <b>{len(df_detalhado)} vendas</b> de 
-                    <b>{len(arquivos_vendas)} arquivos</b> diferentes.
+                <div class="warning-box">
+                    <b>⚠️ Atenção:</b> O cashback calculado abaixo (5%) será válido apenas até <b>{validade_str}</b>.
+                    Essa informação será incluída na mensagem do WhatsApp.
                 </div>
                 """, unsafe_allow_html=True)
 
-                # --- TOP 3 ---
-                top_3 = df_final.head(3).reset_index(drop=True)
-                if not top_3.empty:
-                    st.subheader("🏆 Ranking Acumulado")
-                    c1, c2, c3 = st.columns(3)
-                    medals = ["🥇", "🥈", "🥉"]
-                    for i, col in enumerate([c1, c2, c3]):
-                        if i < len(top_3):
-                            progresso = (top_3.loc[i, 'Cashback'] / PRECO_LAVAGEM) * 100
-                            col.metric(
-                                f"{medals[i]} {top_3.loc[i, col_nome]}",
-                                f"Saldo: R$ {top_3.loc[i, 'Cashback']:.2f}",
-                                f"{progresso:.0f}% da meta"
-                            )
+                # Cards de Finanças (Para a Dona)
+                st.subheader("📊 Resultados Financeiros (Clientes Identificados)")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Faturamento", f"R$ {faturamento_total:.2f}")
+                m2.metric("Custos Operacionais", f"- R$ {custo_total:.2f}", help=f"Baseado no custo de R$ {CUSTO_LAVAGEM} por lavagem")
+                m3.metric("Cashback Gerado", f"- R$ {cashback_total:.2f}", help="5% do faturamento")
+                m4.metric("Lucro Líquido Est.", f"R$ {lucro_liquido:.2f}", delta="Resultado Final")
+
                 st.divider()
 
                 # --- TABELA ---
@@ -194,7 +203,6 @@ if arquivos_vendas and arquivo_cadastro:
                     df_final.insert(0, "Enviar?", True)
                     st.session_state.df_tabela = df_final
                 
-                # Reseta a tabela se o número de linhas mudar (mudou os arquivos)
                 if len(df_final) != len(st.session_state.df_tabela):
                      df_final.insert(0, "Enviar?", True)
                      st.session_state.df_tabela = df_final
@@ -218,14 +226,14 @@ if arquivos_vendas and arquivo_cadastro:
                         "Enviar?": st.column_config.CheckboxColumn("Sel.", width="small"),
                         "Nome": st.column_config.TextColumn("Cliente", width="medium"),
                         "Telefone_Limpo": st.column_config.TextColumn("Telefone", width="medium"),
-                        "Valor_Limpo": st.column_config.NumberColumn("Gasto Histórico", format="R$ %.2f"),
+                        "Valor_Limpo": st.column_config.NumberColumn("Gasto Total", format="R$ %.2f"),
                         "Cashback": st.column_config.ProgressColumn(
-                            f"Meta: R$ {PRECO_LAVAGEM:.2f}",
+                            f"Meta: R$ {PRECO_LAVAGEM:.2f}", # Meta visual é ganhar 1 lavagem
                             format="R$ %.2f",
                             min_value=0,
                             max_value=PRECO_LAVAGEM,
                         ),
-                        "Saldo_em_Lavagens": st.column_config.NumberColumn("Qtd. Prêmios", format="%.1f 🧺"),
+                        "Saldo_em_Lavagens": st.column_config.NumberColumn("Prêmios", format="%.2f 🧺"),
                     },
                     disabled=["Nome", "Telefone_Limpo", "Valor_Limpo", "Cashback", "Saldo_em_Lavagens"],
                     hide_index=True,
@@ -248,12 +256,12 @@ if arquivos_vendas and arquivo_cadastro:
 
                 if botao_disparo:
                     if pin_digitado == "3040":
-                        st.success(f"PIN Correto! Gerando links para {len(clientes_selecionados)} clientes...")
+                        st.success(f"PIN Correto! Validade definida para: {validade_str}")
                         st.markdown("---")
                         
-                        msg_base = "Olá {nome}! Em nosso histórico você já acumulou R$ {cash} de fidelidade. Faltam apenas {falta}% para sua lavagem grátis!"
-                        msg_premio = "Parabéns {nome}! Com suas compras recentes você atingiu a meta! Você tem R$ {cash} de saldo e ganhou sua LAVAGEM GRÁTIS!"
-
+                        # MENSAGEM ATUALIZADA COM VALIDADE
+                        msg_padrao = "Olá {nome}! Você tem R$ {cash} de cashback disponível na lavanderia. Aproveite para usar seu desconto até *{validade}*!"
+                        
                         cols = st.columns(3)
                         for index, row in clientes_selecionados.iterrows():
                             nome = str(row[col_nome]).strip()
@@ -261,22 +269,15 @@ if arquivos_vendas and arquivo_cadastro:
                             cash_val = row['Cashback']
                             
                             val_cash_str = f"{cash_val:.2f}".replace('.', ',')
-                            porcentagem = int((cash_val / PRECO_LAVAGEM) * 100)
                             
-                            if cash_val >= PRECO_LAVAGEM:
-                                texto_final = msg_premio.replace("{nome}", nome).replace("{cash}", val_cash_str)
-                                label_botao = f"🎁 {nome} (RESGATAR!)"
-                            else:
-                                falta = 100 - porcentagem
-                                texto_final = msg_base.replace("{nome}", nome).replace("{cash}", val_cash_str).replace("{falta}", str(falta))
-                                label_botao = f"📲 {nome} (Falta {falta}%)"
-
+                            texto_final = msg_padrao.replace("{nome}", nome).replace("{cash}", val_cash_str).replace("{validade}", validade_str)
+                            
                             with cols[index % 3]:
                                 if not fone or len(fone) < 8:
                                     st.warning(f"🚫 {nome} (S/ Tel)")
                                 else:
                                     link = f"https://wa.me/{fone}?text={quote(texto_final)}"
-                                    st.link_button(label_botao, link, use_container_width=True)
+                                    st.link_button(f"📲 {nome} (R$ {val_cash_str})", link, use_container_width=True)
                     else:
                         st.error("🚫 PIN Incorreto.")
             else:
