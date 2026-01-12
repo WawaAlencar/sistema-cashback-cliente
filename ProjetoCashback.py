@@ -125,7 +125,7 @@ with st.sidebar:
     st.header("⚙️ Financeiro")
     PRECO_LAVAGEM = st.number_input("Preço Venda Lavagem (R$)", value=17.90, step=0.50)
     CUSTO_LAVAGEM = st.number_input("Custo para Dona (R$)", value=5.88, step=0.10)
-    PORCENTAGEM = 0.05  # Agora é 5%
+    PORCENTAGEM = 0.05  # 5%
 
 # --- LÓGICA DE CONSOLIDAÇÃO ---
 if arquivos_vendas and arquivo_cadastro:
@@ -166,12 +166,10 @@ if arquivos_vendas and arquivo_cadastro:
                 df_final = df_final.sort_values(by='Cashback', ascending=False)
                 df_final = df_final[df_final['Cashback'] > 0]
                 
-                # Barra de Progresso (Meta: 1 Lavagem Grátis = R$ 17,90)
-                # Com 5%, o cliente precisa gastar R$ 358,00 (20 lavagens) para ganhar 1.
+                # Barra de Progresso
                 df_final['Saldo_em_Lavagens'] = df_final['Cashback'] / PRECO_LAVAGEM
 
                 # --- CÁLCULO DE LUCRO DO NEGÓCIO ---
-                # Quantidade estimada de lavagens vendidas para esses clientes
                 qtd_lavagens_total = df_final['Valor_Limpo'].sum() / PRECO_LAVAGEM
                 custo_total = qtd_lavagens_total * CUSTO_LAVAGEM
                 cashback_total = df_final['Cashback'].sum()
@@ -183,18 +181,17 @@ if arquivos_vendas and arquivo_cadastro:
                 
                 st.markdown(f"""
                 <div class="warning-box">
-                    <b>⚠️ Atenção:</b> O cashback calculado abaixo (5%) será válido apenas até <b>{validade_str}</b>.
-                    Essa informação será incluída na mensagem do WhatsApp.
+                    <b>⚠️ Validade da Campanha:</b> O cashback calculado (5%) é válido para uso até <b>{validade_str}</b>.
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Cards de Finanças (Para a Dona)
-                st.subheader("📊 Resultados Financeiros (Clientes Identificados)")
+                # Cards de Finanças
+                st.subheader("📊 Resultados Financeiros")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Faturamento", f"R$ {faturamento_total:.2f}")
-                m2.metric("Custos Operacionais", f"- R$ {custo_total:.2f}", help=f"Baseado no custo de R$ {CUSTO_LAVAGEM} por lavagem")
-                m3.metric("Cashback Gerado", f"- R$ {cashback_total:.2f}", help="5% do faturamento")
-                m4.metric("Lucro Líquido Est.", f"R$ {lucro_liquido:.2f}", delta="Resultado Final")
+                m2.metric("Custos (-)", f"R$ {custo_total:.2f}")
+                m3.metric("Cashback Gerado (-)", f"R$ {cashback_total:.2f}")
+                m4.metric("Lucro Líquido", f"R$ {lucro_liquido:.2f}", delta="Resultado")
 
                 st.divider()
 
@@ -228,7 +225,7 @@ if arquivos_vendas and arquivo_cadastro:
                         "Telefone_Limpo": st.column_config.TextColumn("Telefone", width="medium"),
                         "Valor_Limpo": st.column_config.NumberColumn("Gasto Total", format="R$ %.2f"),
                         "Cashback": st.column_config.ProgressColumn(
-                            f"Meta: R$ {PRECO_LAVAGEM:.2f}", # Meta visual é ganhar 1 lavagem
+                            f"Meta: R$ {PRECO_LAVAGEM:.2f}",
                             format="R$ %.2f",
                             min_value=0,
                             max_value=PRECO_LAVAGEM,
@@ -259,8 +256,8 @@ if arquivos_vendas and arquivo_cadastro:
                         st.success(f"PIN Correto! Validade definida para: {validade_str}")
                         st.markdown("---")
                         
-                        # MENSAGEM ATUALIZADA COM VALIDADE
-                        msg_padrao = "Olá {nome}! Você tem R$ {cash} de cashback disponível na lavanderia. Aproveite para usar seu desconto até *{validade}*!"
+                        # MENSAGEM ATUALIZADA COM PERGUNTA "SIM/NÃO"
+                        msg_padrao = "Olá {nome}! Você possui R$ {cash} de cashback acumulado na lavanderia, válido somente até *{validade}*. 💰\n\nDeseja utilizar seu saldo na próxima lavagem? (Responda Sim ou Não)"
                         
                         cols = st.columns(3)
                         for index, row in clientes_selecionados.iterrows():
