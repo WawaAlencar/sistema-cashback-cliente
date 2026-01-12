@@ -66,7 +66,6 @@ st.title("💰 Gestão de Fidelidade (5% - Validade Mensal)")
 
 # --- FUNÇÕES ---
 def get_validade_texto():
-    # Pega a data de hoje e descobre o último dia do mês
     agora = datetime.datetime.now()
     ultimo_dia = calendar.monthrange(agora.year, agora.month)[1]
     meses = {1:'Janeiro', 2:'Fevereiro', 3:'Março', 4:'Abril', 5:'Maio', 6:'Junho',
@@ -125,7 +124,7 @@ with st.sidebar:
     st.header("⚙️ Financeiro")
     PRECO_LAVAGEM = st.number_input("Preço Venda Lavagem (R$)", value=17.90, step=0.50)
     CUSTO_LAVAGEM = st.number_input("Custo para Dona (R$)", value=5.88, step=0.10)
-    PORCENTAGEM = 0.05  # 5%
+    PORCENTAGEM = 0.05
 
 # --- LÓGICA DE CONSOLIDAÇÃO ---
 if arquivos_vendas and arquivo_cadastro:
@@ -165,18 +164,15 @@ if arquivos_vendas and arquivo_cadastro:
                 df_final = df_detalhado.groupby([col_nome, 'Telefone_Limpo'], as_index=False)[['Valor_Limpo', 'Cashback']].sum()
                 df_final = df_final.sort_values(by='Cashback', ascending=False)
                 df_final = df_final[df_final['Cashback'] > 0]
-                
-                # Barra de Progresso
                 df_final['Saldo_em_Lavagens'] = df_final['Cashback'] / PRECO_LAVAGEM
 
-                # --- CÁLCULO DE LUCRO DO NEGÓCIO ---
+                # --- FINANCEIRO ---
                 qtd_lavagens_total = df_final['Valor_Limpo'].sum() / PRECO_LAVAGEM
                 custo_total = qtd_lavagens_total * CUSTO_LAVAGEM
                 cashback_total = df_final['Cashback'].sum()
                 faturamento_total = df_final['Valor_Limpo'].sum()
                 lucro_liquido = faturamento_total - custo_total - cashback_total
 
-                # --- VISUALIZAÇÃO ---
                 validade_str = get_validade_texto()
                 
                 st.markdown(f"""
@@ -185,7 +181,6 @@ if arquivos_vendas and arquivo_cadastro:
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Cards de Finanças
                 st.subheader("📊 Resultados Financeiros")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Faturamento", f"R$ {faturamento_total:.2f}")
@@ -204,7 +199,6 @@ if arquivos_vendas and arquivo_cadastro:
                      df_final.insert(0, "Enviar?", True)
                      st.session_state.df_tabela = df_final
 
-                # Botões de Seleção
                 col_sel, col_desel, _ = st.columns([1, 1, 6])
                 with col_sel:
                     if st.button("✅ Marcar Todos", use_container_width=True):
@@ -256,8 +250,8 @@ if arquivos_vendas and arquivo_cadastro:
                         st.success(f"PIN Correto! Validade definida para: {validade_str}")
                         st.markdown("---")
                         
-                        # MENSAGEM ATUALIZADA COM PERGUNTA "SIM/NÃO"
-                        msg_padrao = "Olá {nome}! Você possui R$ {cash} de cashback acumulado na lavanderia, válido somente até *{validade}*. 💰\n\nDeseja utilizar seu saldo na próxima lavagem? (Responda Sim ou Não)"
+                        # CORREÇÃO: Removemos o Emoji para evitar erro de codificação
+                        msg_padrao = "Olá {nome}! Você possui R$ {cash} de cashback acumulado na lavanderia, válido somente até *{validade}*.\n\nDeseja utilizar seu saldo na próxima lavagem? (Responda Sim ou Não)"
                         
                         cols = st.columns(3)
                         for index, row in clientes_selecionados.iterrows():
